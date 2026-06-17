@@ -8,10 +8,18 @@ const NODE_ACCENT: Record<string, string> = {
 const NODE_ICON: Record<string, string> = {
   oracle: '🔵', hetzner: '🟠', yoga: '🟣', mbp: '🟢', pi: '🔴', s25: '🟡',
 }
+const SSH_USER: Record<string, string> = {
+  oracle: 'ubuntu', hetzner: 'root', mbp: 'kzn', pi: 'jsmithpi',
+}
+
+function vscodeSSHLink(user: string, ip: string): string {
+  return `vscode://vscode-remote/ssh-remote+${user}@${ip}/home/${user}`
+}
 
 export default function NodeCard({ node, peer }: { node: Node; peer?: WireGuardPeer }) {
   const connected = peer ? peer.connected : node.reachable
   const accent    = NODE_ACCENT[node.id] ?? 'border-tfr-border'
+  const sshUser   = SSH_USER[node.id]
 
   return (
     <div className={`bg-tfr-card border rounded-lg p-4 flex flex-col gap-3 ${accent}`}>
@@ -29,7 +37,17 @@ export default function NodeCard({ node, peer }: { node: Node; peer?: WireGuardP
       </div>
 
       <div className="flex flex-wrap gap-x-3 gap-y-0.5">
-        <span className="text-xs font-mono text-tfr-muted">WG {node.ip_wg}</span>
+        {sshUser ? (
+          <a
+            href={vscodeSSHLink(sshUser, node.ip_wg)}
+            className="text-xs font-mono text-tfr-muted hover:text-tfr-cyan transition-colors"
+            title={`Open VS Code: ${sshUser}@${node.ip_wg}`}
+          >
+            WG {node.ip_wg} ↗
+          </a>
+        ) : (
+          <span className="text-xs font-mono text-tfr-muted">WG {node.ip_wg}</span>
+        )}
         {node.ip_public && <span className="text-xs font-mono text-tfr-muted">{node.ip_public}</span>}
       </div>
 
