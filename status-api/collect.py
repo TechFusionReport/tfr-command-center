@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-# ── Config ────────────────────────────────────────────────────────────────────
+# ── Config ───────────────────────────────────────────────────────────
 
 OUTPUT_FILE   = os.getenv("OUTPUT_FILE",   "/var/www/status/status.json")
 N8N_URL       = os.getenv("N8N_URL",       "https://n8n.techfusionreport.com")
@@ -65,18 +65,18 @@ SERVICE_CHECKS = [
 CF_WORKERS = ["discovery", "enhancement-poller", "publisher-poller"]
 
 
-# ── Helpers ─────────────────────────────────────────────────────────────────────
+# ── Helpers ───────────────────────────────────────────────────────────
 
 def now_iso() -> str:
     return datetime.now(timezone.utc).isoformat()
 
 
-# ── WireGuard ──────────────────────────────────────────────────────────────────────────
+# ── WireGuard ─────────────────────────────────────────────────────────────
 
 def get_wireguard_peers() -> list[dict]:
     try:
         result = subprocess.run(
-            ["wg", "show", "wg0", "dump"],
+            ["sudo", "wg", "show", "wg0", "dump"],
             capture_output=True, text=True, timeout=5,
         )
         peers = []
@@ -107,34 +107,50 @@ def get_wireguard_peers() -> list[dict]:
         return []
 
 
-# ── HTTP health checks ──────────────────────────────────────────────────────────────────
+# ── HTTP health checks ───────────────────────────────────────────────────────────
 
-async def check_http(session: aiohttp.ClientSession, url: str) -> tuple[str, Optional[int]]:
+async def check_http(
+    session: aiohttp.ClientSession, url: str
+) -> tuple[str, Optional[int]]:
     try:
         start = time.monotonic()
-        async with session.get(url, timeout=aiohttp.ClientTimeout(total=TIMEOUT_S), allow_redirects=True, ssl=False) as resp:
+        async with session.get(
+            url,
+            timeout=aiohttp.ClientTimeout(total=TIMEOUT_S),
+            allow_redirects=True,
+            ssl=False,
+        ) as resp:
             latency = int((time.monotonic() - start) * 1000)
-            return ("up" if resp.status < 500 else "down"), latency
+            status  = "up" if resp.status < 500 else "down"
+            return status, latency
     except Exception:
         return "down", None
 
 
-async def run_service_checks(session: aiohttp.ClientSession) -> dict[str, dict[str, dict]]:
+async def run_service_checks(
+    session: aiohttp.ClientSession,
+) -> dict[str, dict[str, dict]]:
     results: dict[str, dict[str, dict]] = {}
-    resolved = await asyncio.gather(*[check_http(session, url) for _, _, url in SERVICE_CHECKS])
+    coros   = [check_http(session, url) for _, _, url in SERVICE_CHECKS]
+    resolved = await asyncio.gather(*coros)
     for (node, name, _), (status, latency) in zip(SERVICE_CHECKS, resolved):
-        results.setdefault(node, {})[name] = {"status": status, **(({"latency_ms": latency}) if latency is not None else {})}
+        results.setdefault(node, {})[name] = {
+            "status": status,
+            **({"latency_ms": latency} if latency is not None else {}),
+        }
     return results
 
 
-# ── n8n ─────────────────────────────────────────────────────────────────────────────
+# ── n8n ──────────────────────────────────────────────────────────────────
 
 async def get_n8n_status(session: aiohttp.ClientSession) -> dict:
     headers = {"X-N8N-API-KEY": N8N_API_KEY} if N8N_API_KEY else {}
     base    = f"{N8N_URL}/api/v1"
 
     try:
-        async with session.get(f"{N8N_URL}/healthz", timeout=aiohttp.ClientTimeout(total=TIMEOUT_S)) as r:
+        async with session.get(
+            f"{N8N_URL}/healthz", timeout=aiohttp.ClientTimeout(total=TIMEOUT_S)
+        ) as r:
             reachable = r.status < 500
     except Exception:
         reachable = False
@@ -143,7 +159,9 @@ async def get_n8n_status(session: aiohttp.ClientSession) -> dict:
         return {"host": N8N_URL, "reachable": reachable, "workflows": []}
 
     try:
-        async with session.get(f"{base}/workflows", headers=headers, timeout=aiohttp.ClientTimeout(total=10)) as r:
+        async with session.get(
+            f"{base}/workflows", headers=headers, timeout=aiohttp.ClientTimeout(total=10)
+        ) as r:
             workflows = (await r.json()).get("data", [])
     except Exception:
         return {"host": N8N_URL, "reachable": reachable, "workflows": []}
@@ -152,8 +170,11 @@ async def get_n8n_status(session: aiohttp.ClientSession) -> dict:
     for wf in workflows:
         entry: dict = {"id": wf["id"], "name": wf["name"], "active": wf.get("active", False)}
         try:
-            async with session.get(f"{base}/executions?workflowId={wf['id']}&limit=1&includeData=false",
-                headers=headers, timeout=aiohttp.ClientTimeout(total=5)) as r:
+            async with session.get(
+                f"{base}/executions?workflowId={wf['id']}&limit=1&includeData=false",
+                headers=headers,
+                timeout=aiohttp.ClientTimeout(total=5),
+            ) as r:
                 execs = (await r.json()).get("data", [])
                 if execs:
                     ex = execs[0]
@@ -170,9 +191,11 @@ async def get_n8n_status(session: aiohttp.ClientSession) -> dict:
     return {"host": N8N_URL, "reachable": reachable, "workflows": result_workflows}
 
 
-# ── Cloudflare Workers ──────────────────────────────────────────────────────────────────
+# ── Cloudflare Workers ─────────────────────────────────────────────────────────────
 
-async def get_worker_status(session: aiohttp.ClientSession, worker_name: str) -> dict:
+async def get_worker_status(
+    session: aiohttp.ClientSession, worker_name: str
+) -> dict:
     base_entry = {"name": f"{worker_name}.js", "status": "unknown"}
     if not CF_API_TOKEN or not CF_ACCOUNT_ID:
         return base_entry
@@ -186,16 +209,31 @@ query($accountId: String!, $scriptName: String!, $since: String!, $until: String
       workersInvocationsAdaptive(
         limit: 1
         filter: {scriptName: $scriptName, datetime_geq: $since, datetime_leq: $until}
-      ) { sum { requests errors } }
+      ) {
+        sum { requests errors }
+      }
     }
   }
 }
 """
     try:
-        async with session.post("https://api.cloudflare.com/client/v4/graphql",
-            json={"query": query, "variables": {"accountId": CF_ACCOUNT_ID, "scriptName": worker_name, "since": since, "until": until}},
-            headers={"Authorization": f"Bearer {CF_API_TOKEN}", "Content-Type": "application/json"},
-            timeout=aiohttp.ClientTimeout(total=10)) as r:
+        async with session.post(
+            "https://api.cloudflare.com/client/v4/graphql",
+            json={
+                "query": query,
+                "variables": {
+                    "accountId":  CF_ACCOUNT_ID,
+                    "scriptName": worker_name,
+                    "since":      since,
+                    "until":      until,
+                },
+            },
+            headers={
+                "Authorization": f"Bearer {CF_API_TOKEN}",
+                "Content-Type":  "application/json",
+            },
+            timeout=aiohttp.ClientTimeout(total=10),
+        ) as r:
             data   = await r.json()
             accts  = data.get("data", {}).get("viewer", {}).get("accounts", [])
             inv    = accts[0].get("workersInvocationsAdaptive", []) if accts else []
@@ -203,14 +241,19 @@ query($accountId: String!, $scriptName: String!, $since: String!, $until: String
             reqs   = totals.get("requests", 0)
             errs   = totals.get("errors", 0)
             rate   = round(errs / reqs, 4) if reqs > 0 else 0.0
-            return {"name": f"{worker_name}.js", "status": "error" if rate > 0.05 else "healthy",
-                    "requests_24h": reqs, "errors_24h": errs, "error_rate": rate}
+            return {
+                "name":         f"{worker_name}.js",
+                "status":       "error" if rate > 0.05 else "healthy",
+                "requests_24h": reqs,
+                "errors_24h":   errs,
+                "error_rate":   rate,
+            }
     except Exception as e:
         print(f"CF worker {worker_name} failed: {e}")
         return base_entry
 
 
-# ── Notion content catalog counts ───────────────────────────────────────────────────────────────
+# ── Notion content catalog counts ──────────────────────────────────────────────────────
 
 async def get_content_catalog(session: aiohttp.ClientSession) -> dict:
     default = {"pending": 0, "in_review": 0, "published": 0, "total": 0}
@@ -218,19 +261,42 @@ async def get_content_catalog(session: aiohttp.ClientSession) -> dict:
     if not NOTION_TOKEN or not db_id:
         return default
 
-    headers = {"Authorization": f"Bearer {NOTION_TOKEN}", "Notion-Version": "2022-06-28", "Content-Type": "application/json"}
-    status_map = {"pending": ["Draft", "Pending"], "in_review": ["In Review"], "published": ["Published"]}
+    headers = {
+        "Authorization":  f"Bearer {NOTION_TOKEN}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type":   "application/json",
+    }
+
+    # Adjust these values to match your actual Notion Status property options
+    status_map = {
+        "pending":   ["Draft", "Pending"],
+        "in_review": ["In Review"],
+        "published": ["Published"],
+    }
+
     counts: dict[str, int] = {k: 0 for k in status_map}
 
     for bucket, values in status_map.items():
         cursor = None
         while True:
-            body: dict = {"page_size": 100, "filter": {"or": [{"property": "Status", "status": {"equals": v}} for v in values]}}
+            body: dict = {
+                "page_size": 100,
+                "filter": {
+                    "or": [
+                        {"property": "Status", "status": {"equals": v}}
+                        for v in values
+                    ]
+                },
+            }
             if cursor:
                 body["start_cursor"] = cursor
             try:
-                async with session.post(f"https://api.notion.com/v1/databases/{db_id}/query",
-                    headers=headers, json=body, timeout=aiohttp.ClientTimeout(total=15)) as r:
+                async with session.post(
+                    f"https://api.notion.com/v1/databases/{db_id}/query",
+                    headers=headers,
+                    json=body,
+                    timeout=aiohttp.ClientTimeout(total=15),
+                ) as r:
                     data = await r.json()
                     counts[bucket] += len(data.get("results", []))
                     if data.get("has_more"):
@@ -245,69 +311,137 @@ async def get_content_catalog(session: aiohttp.ClientSession) -> dict:
     return {**counts, "total": total}
 
 
-# ── Node manifest ─────────────────────────────────────────────────────────────────────────────
+# ── Node manifest ─────────────────────────────────────────────────────────────────
 
 def build_nodes(svc_results: dict, wg_peers: list[dict]) -> list[dict]:
     peer_connected = {p["node_id"]: p["connected"] for p in wg_peers}
+
     nodes_def = [
-        {"id": "oracle",  "label": "Oracle ARM64",     "role": "WireGuard Hub · n8n · LibreChat",   "ip_wg": "10.10.0.1", "ip_public": "132.145.140.200", "reachable": True,                              "services": ["n8n", "LibreChat", "Portainer", "Uptime Kuma", "Grafana", "Home Assistant"]},
-        {"id": "hetzner", "label": "Hetzner TFR-Prod", "role": "Vaultwarden · Syncthing · Nginx",  "ip_wg": "10.10.0.2", "ip_public": "116.203.66.43",  "reachable": peer_connected.get("hetzner", False), "services": ["Vaultwarden", "Syncthing", "Nginx Proxy Mgr", "Glances"]},
-        {"id": "yoga",    "label": "Yoga 7i",           "role": "Mimir · Claude Desktop",           "ip_wg": "10.10.0.3",                                   "reachable": peer_connected.get("yoga",    False), "services": []},
-        {"id": "mbp",     "label": "MacBook Pro",       "role": "WireGuard peer · headless",        "ip_wg": "10.10.0.4",                                   "reachable": peer_connected.get("mbp",     False), "services": []},
-        {"id": "pi",      "label": "Pi 500",            "role": "Pi-hole · Plex · Threadfin",      "ip_wg": "10.10.0.6",                                   "reachable": peer_connected.get("pi",      False), "services": ["Plex", "Threadfin"]},
-        {"id": "s25",     "label": "S25 Ultra",         "role": "WireGuard peer · mobile",          "ip_wg": "10.10.0.5",                                   "reachable": peer_connected.get("s25",     False), "services": []},
+        {
+            "id": "oracle", "label": "Oracle ARM64",
+            "role": "WireGuard Hub · n8n · LibreChat",
+            "ip_wg": "10.10.0.1", "ip_public": "132.145.140.200",
+            "reachable": True,  # we're running on oracle
+            "services": ["n8n", "LibreChat", "Portainer", "Uptime Kuma", "Grafana", "Home Assistant"],
+        },
+        {
+            "id": "hetzner", "label": "Hetzner TFR-Prod",
+            "role": "Vaultwarden · Syncthing · Nginx",
+            "ip_wg": "10.10.0.2", "ip_public": "116.203.66.43",
+            "reachable": peer_connected.get("hetzner", False),
+            "services": ["Vaultwarden", "Syncthing", "Nginx Proxy Mgr", "Glances"],
+        },
+        {
+            "id": "yoga", "label": "Yoga 7i",
+            "role": "Mimir · Claude Desktop",
+            "ip_wg": "10.10.0.3",
+            "reachable": peer_connected.get("yoga", False),
+            "services": [],
+        },
+        {
+            "id": "mbp", "label": "MacBook Pro",
+            "role": "WireGuard peer · headless",
+            "ip_wg": "10.10.0.4",
+            "reachable": peer_connected.get("mbp", False),
+            "services": [],
+        },
+        {
+            "id": "pi", "label": "Pi 500",
+            "role": "Pi-hole · Plex · Threadfin",
+            "ip_wg": "10.10.0.6",
+            "reachable": peer_connected.get("pi", False),
+            "services": ["Plex", "Threadfin"],
+        },
+        {
+            "id": "s25", "label": "S25 Ultra",
+            "role": "WireGuard peer · mobile",
+            "ip_wg": "10.10.0.5",
+            "reachable": peer_connected.get("s25", False),
+            "services": [],
+        },
     ]
 
     result = []
     for node in nodes_def:
         node_checks = svc_results.get(node["id"], {})
-        services = [{"name": name, "status": node_checks.get(name, {}).get("status", "unknown"),
-                     **{k: v for k, v in node_checks.get(name, {}).items() if k != "status"}} for name in node["services"]]
+        services = []
+        for name in node["services"]:
+            check = node_checks.get(name, {})
+            services.append({"name": name, "status": check.get("status", "unknown"), **{k: v for k, v in check.items() if k != "status"}})
+        # Static services with no HTTP check
         if node["id"] == "pi":
-            services += [{"name": "Pi-hole",  "status": "unknown", "note": "port 53 conflict pending"},
-                         {"name": "Jellyfin", "status": "unknown", "note": "LAN only"}]
+            services.append({"name": "Pi-hole",  "status": "unknown", "note": "port 53 conflict pending"})
+            services.append({"name": "Jellyfin", "status": "unknown", "note": "LAN only"})
         if node["id"] == "yoga":
-            services += [{"name": "Mimir", "status": "unknown"}, {"name": "Claude Desktop", "status": "unknown"}]
+            services.append({"name": "Mimir",          "status": "unknown"})
+            services.append({"name": "Claude Desktop",  "status": "unknown"})
+
         node_out = {k: v for k, v in node.items() if k != "services"}
         node_out["services"] = services
         result.append(node_out)
+
     return result
 
 
-# ── Main ──────────────────────────────────────────────────────────────────────────────
+# ── Main ──────────────────────────────────────────────────────────────────
 
 async def collect() -> dict:
     t0 = time.monotonic()
+
     async with aiohttp.ClientSession() as session:
         svc_task     = run_service_checks(session)
         n8n_task     = get_n8n_status(session)
         worker_tasks = [get_worker_status(session, w) for w in CF_WORKERS]
         cat_task     = get_content_catalog(session)
-        svc_results, n8n_status, *worker_statuses, catalog = await asyncio.gather(svc_task, n8n_task, *worker_tasks, cat_task)
+
+        svc_results, n8n_status, *worker_statuses, catalog = await asyncio.gather(
+            svc_task, n8n_task, *worker_tasks, cat_task
+        )
 
     wg_peers = get_wireguard_peers()
     nodes    = build_nodes(svc_results, wg_peers)
-    print(f"[{now_iso()}] collected in {round((time.monotonic() - t0) * 1000)}ms")
+
+    elapsed = round((time.monotonic() - t0) * 1000)
+    print(f"[{now_iso()}] collected in {elapsed}ms")
 
     return {
         "generated_at": now_iso(),
         "nodes": nodes,
-        "wireguard": {"hub": "oracle", "peers": wg_peers},
-        "tfr_pipeline": {"workers": list(worker_statuses), "content_catalog": catalog},
+        "wireguard": {
+            "hub":   "oracle",
+            "peers": wg_peers,
+        },
+        "tfr_pipeline": {
+            "workers":         list(worker_statuses),
+            "content_catalog": catalog,
+        },
         "n8n": n8n_status,
         "homelab": {
             "services": [
-                {"name": "Home Assistant", "node": "oracle", "tunnel": True,  **svc_results.get("oracle", {}).get("Home Assistant", {"status": "unknown"})},
-                {"name": "Plex",           "node": "pi",     "tunnel": True,  **svc_results.get("pi",     {}).get("Plex",           {"status": "unknown"})},
-                {"name": "Threadfin",      "node": "pi",     "tunnel": True,  **svc_results.get("pi",     {}).get("Threadfin",      {"status": "unknown"})},
-                {"name": "Jellyfin",       "node": "pi",     "tunnel": False, "status": "unknown", "note": "LAN only"},
-                {"name": "Pi-hole",        "node": "pi",     "tunnel": False, "status": "unknown"},
+                {
+                    "name": "Home Assistant", "node": "oracle", "tunnel": True,
+                    **svc_results.get("oracle", {}).get("Home Assistant", {"status": "unknown"}),
+                },
+                {
+                    "name": "Plex", "node": "pi", "tunnel": True,
+                    **svc_results.get("pi", {}).get("Plex", {"status": "unknown"}),
+                },
+                {
+                    "name": "Threadfin", "node": "pi", "tunnel": True,
+                    **svc_results.get("pi", {}).get("Threadfin", {"status": "unknown"}),
+                },
+                {"name": "Jellyfin", "node": "pi", "tunnel": False, "status": "unknown", "note": "LAN only"},
+                {"name": "Pi-hole",  "node": "pi", "tunnel": False, "status": "unknown"},
             ],
         },
         "notion": {
             "databases": [
-                {"name": "Content Catalog v2", "id": NOTION_DBS.get("Content Catalog v2", ""), "record_count": catalog.get("total")},
-                {"name": "Topic Queue",  "id": NOTION_DBS.get("Topic Queue",  "")},
+                {
+                    "name": "Content Catalog v2",
+                    "id":   NOTION_DBS.get("Content Catalog v2", ""),
+                    "record_count": catalog.get("total"),
+                },
+                {"name": "Topic Queue", "id": NOTION_DBS.get("Topic Queue", "")},
                 {"name": "Task Tracker", "id": NOTION_DBS.get("Task Tracker", "")},
             ],
         },
