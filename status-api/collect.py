@@ -24,7 +24,7 @@ from dotenv import load_dotenv
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
-# ── Config ───────────────────────────────────────────────────────────
+# ── Config ─────────────────────────────────────────────────────────
 
 OUTPUT_FILE   = os.getenv("OUTPUT_FILE",   "/var/www/status/status.json")
 N8N_URL       = os.getenv("N8N_URL",       "https://n8n.techfusionreport.com")
@@ -56,12 +56,13 @@ SERVICE_CHECKS = [
     ("oracle",  "Portainer",      "https://portainer.techfusionreport.com"),
     ("oracle",  "Uptime Kuma",    "https://uptime.techfusionreport.com"),
     ("oracle",  "Grafana",        "https://grafana.techfusionreport.com/api/health"),
-    ("oracle",  "Home Assistant", "https://ha.techfusionreport.com"),
     ("hetzner", "Vaultwarden",    "https://vault.techfusionreport.com"),
     ("hetzner", "Syncthing",      "https://sync.techfusionreport.com"),
     ("hetzner", "Glances",        "https://glances-hetzner.techfusionreport.com"),
+    ("pi",      "Home Assistant", "https://ha.techfusionreport.com"),
+    ("pi",      "Jellyfin",       "https://jellyfin.techfusionreport.com"),
+    ("pi",      "Glances",        "https://glances-pi.techfusionreport.com"),
     ("pi",      "Plex",           "http://10.10.0.6:32400/web"),
-    ("pi",      "Threadfin",      "http://10.10.0.6:34400"),
 ]
 
 CF_WORKERS = ["discovery", "enhancement-poller", "publisher-poller"]
@@ -109,7 +110,7 @@ def get_wireguard_peers() -> list[dict]:
         return []
 
 
-# ── HTTP health checks ───────────────────────────────────────────────────────────
+# ── HTTP health checks ────────────────────────────────────────────────────────────
 
 async def check_http(
     session: aiohttp.ClientSession, url: str
@@ -143,7 +144,7 @@ async def run_service_checks(
     return results
 
 
-# ── n8n ──────────────────────────────────────────────────────────────────
+# ── n8n ───────────────────────────────────────────────────────────────────
 
 async def get_n8n_status(session: aiohttp.ClientSession) -> dict:
     headers = {"X-N8N-API-KEY": N8N_API_KEY} if N8N_API_KEY else {}
@@ -255,7 +256,7 @@ query($accountId: String!, $scriptName: String!, $since: String!, $until: String
         return base_entry
 
 
-# ── Notion content catalog counts ──────────────────────────────────────────────────────
+# ── Notion content catalog counts ────────────────────────────────────────────────────────────
 
 async def get_content_catalog(session: aiohttp.ClientSession) -> dict:
     default = {"pending": 0, "in_review": 0, "published": 0, "total": 0}
@@ -269,6 +270,7 @@ async def get_content_catalog(session: aiohttp.ClientSession) -> dict:
         "Content-Type":   "application/json",
     }
 
+    # Adjust these values to match your actual Notion Status property options
     status_map = {
         "pending":   ["Draft", "Pending"],
         "in_review": ["In Review"],
@@ -322,15 +324,15 @@ def build_nodes(svc_results: dict, wg_peers: list[dict]) -> list[dict]:
             "id": "oracle", "label": "Oracle ARM64",
             "role": "WireGuard Hub · n8n · LibreChat",
             "ip_wg": "10.10.0.1", "ip_public": "132.145.140.200",
-            "reachable": True,
-            "services": ["n8n", "LibreChat", "Portainer", "Uptime Kuma", "Grafana", "Home Assistant"],
+            "reachable": True,  # we're running on oracle
+            "services": ["n8n", "LibreChat", "Portainer", "Uptime Kuma", "Grafana"],
         },
         {
             "id": "hetzner", "label": "Hetzner TFR-Prod",
             "role": "Vaultwarden · Syncthing · Nginx",
             "ip_wg": "10.10.0.2", "ip_public": "116.203.66.43",
             "reachable": peer_connected.get("hetzner", False),
-            "services": ["Vaultwarden", "Syncthing", "Glances", "Nginx Proxy Mgr"],
+            "services": ["Vaultwarden", "Syncthing", "Glances"],
         },
         {
             "id": "yoga", "label": "Yoga 7i",
@@ -348,10 +350,10 @@ def build_nodes(svc_results: dict, wg_peers: list[dict]) -> list[dict]:
         },
         {
             "id": "pi", "label": "Pi 500",
-            "role": "Pi-hole · Plex · Threadfin",
+            "role": "Home Assistant · Plex · Jellyfin",
             "ip_wg": "10.10.0.6",
             "reachable": peer_connected.get("pi", False),
-            "services": ["Plex", "Threadfin"],
+            "services": ["Home Assistant", "Jellyfin", "Glances", "Plex"],
         },
         {
             "id": "s25", "label": "S25 Ultra",
@@ -369,14 +371,12 @@ def build_nodes(svc_results: dict, wg_peers: list[dict]) -> list[dict]:
         for name in node["services"]:
             check = node_checks.get(name, {})
             services.append({"name": name, "status": check.get("status", "unknown"), **{k: v for k, v in check.items() if k != "status"}})
+        # Static services with no HTTP check
         if node["id"] == "pi":
-            services.append({"name": "Pi-hole",  "status": "unknown", "note": "port 53 conflict pending"})
-            services.append({"name": "Jellyfin", "status": "unknown", "note": "LAN only"})
+            services.append({"name": "Pi-hole", "status": "unknown", "note": "port 53, no HTTP check"})
         if node["id"] == "yoga":
             services.append({"name": "Mimir",         "status": "unknown"})
             services.append({"name": "Claude Desktop", "status": "unknown"})
-        if node["id"] == "hetzner":
-            services.append({"name": "Nginx Proxy Mgr", "status": "unknown", "note": "admin not exposed"})
 
         node_out = {k: v for k, v in node.items() if k != "services"}
         node_out["services"] = services
@@ -385,7 +385,7 @@ def build_nodes(svc_results: dict, wg_peers: list[dict]) -> list[dict]:
     return result
 
 
-# ── Main ──────────────────────────────────────────────────────────────────
+# ── Main ────────────────────────────────────────────────────────────────────
 
 async def collect() -> dict:
     t0 = time.monotonic()
@@ -421,19 +421,18 @@ async def collect() -> dict:
         "homelab": {
             "services": [
                 {
-                    "name": "Home Assistant", "node": "oracle", "tunnel": True,
-                    **svc_results.get("oracle", {}).get("Home Assistant", {"status": "unknown"}),
+                    "name": "Home Assistant", "node": "pi", "tunnel": True,
+                    **svc_results.get("pi", {}).get("Home Assistant", {"status": "unknown"}),
                 },
                 {
-                    "name": "Plex", "node": "pi", "tunnel": True,
+                    "name": "Jellyfin", "node": "pi", "tunnel": True,
+                    **svc_results.get("pi", {}).get("Jellyfin", {"status": "unknown"}),
+                },
+                {
+                    "name": "Plex", "node": "pi", "tunnel": False,
                     **svc_results.get("pi", {}).get("Plex", {"status": "unknown"}),
                 },
-                {
-                    "name": "Threadfin", "node": "pi", "tunnel": True,
-                    **svc_results.get("pi", {}).get("Threadfin", {"status": "unknown"}),
-                },
-                {"name": "Jellyfin", "node": "pi", "tunnel": False, "status": "unknown", "note": "LAN only"},
-                {"name": "Pi-hole",  "node": "pi", "tunnel": False, "status": "unknown"},
+                {"name": "Pi-hole", "node": "pi", "tunnel": False, "status": "unknown"},
             ],
         },
         "notion": {
