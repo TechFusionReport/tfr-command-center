@@ -106,6 +106,26 @@ export interface NotionStatus {
   databases: NotionDatabase[]
 }
 
+export interface LanCheck {
+  name: string
+  ok: boolean
+  required: boolean
+  latency_avg_ms: number | null
+  packet_loss_pct: number | null
+}
+
+export interface LanWatchtower {
+  healthy: boolean | null
+  incident_open: boolean
+  failure_count: number
+  probe_online: boolean
+  last_seen: string | null
+  probe: string | null
+  wifi_signal_dbm: number | null
+  checks: LanCheck[]
+  generated_at: string
+}
+
 export interface StatusResponse {
   generated_at: string
   nodes: Node[]
@@ -114,4 +134,5 @@ export interface StatusResponse {
   n8n: N8NStatus
   homelab: HomelabStatus
   notion: NotionStatus
+  lan_watchtower?: LanWatchtower
 }
