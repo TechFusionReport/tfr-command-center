@@ -26,13 +26,17 @@ load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 # ── Config ─────────────────────────────────────────────────────────
 
-OUTPUT_FILE   = os.getenv("OUTPUT_FILE",   "/var/www/status/status.json")
-N8N_URL       = os.getenv("N8N_URL",       "https://n8n.techfusionreport.com")
-N8N_API_KEY   = os.getenv("N8N_API_KEY",   "")
-CF_ACCOUNT_ID = os.getenv("CF_ACCOUNT_ID", "")
-CF_API_TOKEN  = os.getenv("CF_API_TOKEN",  "")
-NOTION_TOKEN  = os.getenv("NOTION_TOKEN",  "")
-TIMEOUT_S     = int(os.getenv("TIMEOUT_S", "5"))
+OUTPUT_FILE         = os.getenv("OUTPUT_FILE",         "/var/www/status/status.json")
+N8N_URL             = os.getenv("N8N_URL",             "https://n8n.techfusionreport.com")
+N8N_API_KEY         = os.getenv("N8N_API_KEY",         "")
+CF_ACCOUNT_ID       = os.getenv("CF_ACCOUNT_ID",       "")
+CF_API_TOKEN        = os.getenv("CF_API_TOKEN",        "")
+NOTION_TOKEN        = os.getenv("NOTION_TOKEN",        "")
+TIMEOUT_S           = int(os.getenv("TIMEOUT_S",       "5"))
+LAN_WATCHTOWER_URL  = os.getenv(
+    "LAN_WATCHTOWER_URL",
+    "https://n8n.techfusionreport.com/webhook/lan-status",
+)
 
 NOTION_DBS = {
     "Content Catalog v2": os.getenv("NOTION_CONTENT_CATALOG_ID", ""),
@@ -139,7 +143,7 @@ async def run_service_checks(
     for (node, name, _), (status, latency) in zip(SERVICE_CHECKS, resolved):
         results.setdefault(node, {})[name] = {
             "status": status,
-            **({"latency_ms": latency} if latency is not None else {}),
+            **({("latency_ms"): latency} if latency is not None else {}),
         }
     return results
 
@@ -270,7 +274,6 @@ async def get_content_catalog(session: aiohttp.ClientSession) -> dict:
         "Content-Type":   "application/json",
     }
 
-    # Adjust these values to match your actual Notion Status property options
     status_map = {
         "pending":   ["Draft", "Pending"],
         "in_review": ["In Review"],
@@ -312,6 +315,38 @@ async def get_content_catalog(session: aiohttp.ClientSession) -> dict:
 
     total = sum(counts.values())
     return {**counts, "total": total}
+
+
+# ── LAN Watchtower ────────────────────────────────────────────────────────────────
+
+async def get_lan_watchtower(session: aiohttp.ClientSession) -> dict:
+    """Fetch sanitized LAN probe state from the n8n read endpoint."""
+    default = {
+        "healthy": None,
+        "incident_open": False,
+        "failure_count": 0,
+        "probe_online": False,
+        "last_seen": None,
+        "probe": None,
+        "wifi_signal_dbm": None,
+        "checks": [],
+        "generated_at": now_iso(),
+    }
+    if not LAN_WATCHTOWER_URL:
+        return default
+    try:
+        async with session.get(
+            LAN_WATCHTOWER_URL,
+            timeout=aiohttp.ClientTimeout(total=TIMEOUT_S),
+            ssl=False,
+        ) as r:
+            if r.status == 200:
+                return await r.json()
+            print(f"LAN Watchtower returned HTTP {r.status}")
+            return default
+    except Exception as e:
+        print(f"LAN Watchtower fetch failed: {e}")
+        return default
 
 
 # ── Node manifest ─────────────────────────────────────────────────────────────────
@@ -395,9 +430,10 @@ async def collect() -> dict:
         n8n_task     = get_n8n_status(session)
         worker_tasks = [get_worker_status(session, w) for w in CF_WORKERS]
         cat_task     = get_content_catalog(session)
+        lan_task     = get_lan_watchtower(session)
 
-        svc_results, n8n_status, *worker_statuses, catalog = await asyncio.gather(
-            svc_task, n8n_task, *worker_tasks, cat_task
+        svc_results, n8n_status, *worker_statuses, catalog, lan_watchtower = await asyncio.gather(
+            svc_task, n8n_task, *worker_tasks, cat_task, lan_task
         )
 
     wg_peers = get_wireguard_peers()
@@ -446,6 +482,7 @@ async def collect() -> dict:
                 {"name": "Task Tracker", "id": NOTION_DBS.get("Task Tracker", "")},
             ],
         },
+        "lan_watchtower": lan_watchtower,
     }
 
 
