@@ -7,6 +7,7 @@ import WorkerCard from './components/pipeline/WorkerCard'
 import ContentCatalogBar from './components/pipeline/ContentCatalogBar'
 import WorkflowTable from './components/n8n/WorkflowTable'
 import ServiceGrid from './components/homelab/ServiceGrid'
+import LanWatchtowerCard from './components/lan/LanWatchtowerCard'
 
 export default function App() {
   const { data, error, loading, stale, refetch } = useStatus()
@@ -60,6 +61,12 @@ export default function App() {
           <Section title="Homelab Services">
             <ServiceGrid services={data.homelab.services} nodes={data.nodes} />
           </Section>
+
+          {data.lan_watchtower && (
+            <Section title="Home Network" subtitle="LAN Watchtower · Pi 500 probe">
+              <LanWatchtowerCard data={data.lan_watchtower} />
+            </Section>
+          )}
 
           <Section title="Notion Databases">
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
