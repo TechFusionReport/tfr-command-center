@@ -75,4 +75,43 @@ export const MOCK_STATUS: StatusResponse = {
       { name: 'Task Tracker',       id: 'task-tracker',     record_count: 31 },
     ],
   },
+  github: {
+    prs: [
+      {
+        repo: 'Automations', number: 54, title: 'fix: read GITHUB_EVENT_PATH directly in PR metadata check',
+        url: 'https://github.com/TechFusionReport/Automations/pull/54', author: 'TechFusionReport',
+        draft: false,
+        created_at: new Date(Date.now() - 3 * 3600000).toISOString(),
+        updated_at: new Date(Date.now() - 20 * 60000).toISOString(),
+        agent: 'Claude', task: 'N/A — hotfix', risk: 'Low',
+      },
+      {
+        repo: 'Website', number: 19, title: 'feat: add Entertainment subcategory pages',
+        url: 'https://github.com/TechFusionReport/Website/pull/19', author: 'TechFusionReport',
+        draft: true,
+        created_at: new Date(Date.now() - 26 * 3600000).toISOString(),
+        updated_at: new Date(Date.now() - 5 * 3600000).toISOString(),
+        agent: 'ChatGPT', task: 'https://app.notion.com/p/example-task', risk: 'Low',
+      },
+    ],
+  },
+  task_tracker: {
+    tasks: [
+      {
+        id: 'mock-task-1', url: 'https://app.notion.com/p/example-task-1',
+        task: 'Rotate n8n API key (Command Center collector)',
+        status: 'In Progress', owner: 'Justin', active_agent: 'Claude', risk: 'Medium', pr: null,
+      },
+      {
+        id: 'mock-task-2', url: 'https://app.notion.com/p/example-task-2',
+        task: 'Provision Oracle 100GB block volume for Immich',
+        status: 'Blocked', owner: 'Justin', active_agent: 'Unclaimed', risk: 'Medium', pr: null,
+      },
+      {
+        id: 'mock-task-3', url: 'https://app.notion.com/p/example-task-3',
+        task: 'Add IDEOGRAM_API_KEY to Oracle n8n env',
+        status: 'Not Started', owner: 'Justin', active_agent: 'Unclaimed', risk: 'Low', pr: null,
+      },
+    ],
+  },
 }

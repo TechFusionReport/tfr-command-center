@@ -8,6 +8,8 @@ import ContentCatalogBar from './components/pipeline/ContentCatalogBar'
 import WorkflowTable from './components/n8n/WorkflowTable'
 import ServiceGrid from './components/homelab/ServiceGrid'
 import LanWatchtowerCard from './components/lan/LanWatchtowerCard'
+import PullRequestTable from './components/github/PullRequestTable'
+import TaskTrackerTable from './components/tasks/TaskTrackerTable'
 
 export default function App() {
   const { data, error, loading, stale, refetch } = useStatus()
@@ -65,6 +67,18 @@ export default function App() {
           {data.lan_watchtower && (
             <Section title="Home Network" subtitle="LAN Watchtower · Pi 500 probe">
               <LanWatchtowerCard data={data.lan_watchtower} />
+            </Section>
+          )}
+
+          {data.github && (
+            <Section title="Open Pull Requests" subtitle="Website · Automations" count={data.github.prs.length}>
+              <PullRequestTable prs={data.github.prs} />
+            </Section>
+          )}
+
+          {data.task_tracker && (
+            <Section title="Task Tracker" subtitle="Master Task Tracker · open tasks" count={data.task_tracker.tasks.length}>
+              <TaskTrackerTable tasks={data.task_tracker.tasks} />
             </Section>
           )}
 

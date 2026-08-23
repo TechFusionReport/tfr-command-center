@@ -126,6 +126,49 @@ export interface LanWatchtower {
   generated_at: string
 }
 
+/** A repo tracked for open-PR display — Website + Automations only (see TechFusion OS §10;
+ * tfr-command-center is intentionally excluded from its own PR tracking). */
+export type GitHubTrackedRepo = 'Website' | 'Automations'
+
+/** Agent/Task/Risk are parsed from the PR body's metadata footer (governance §4/§11) —
+ * null when the PR predates the footer requirement or left a field unfilled. */
+export interface GitHubPR {
+  repo: GitHubTrackedRepo | string
+  number: number
+  title: string
+  url: string
+  author?: string
+  draft: boolean
+  created_at: string
+  updated_at: string
+  agent?: string | null
+  task?: string | null
+  risk?: string | null
+}
+
+export interface GitHubStatus {
+  prs: GitHubPR[]
+}
+
+export type TaskTrackerStatusValue = 'Not Started' | 'In Progress' | 'On Hold' | 'Done' | 'Abandoned' | 'Blocked'
+
+/** One open row from the ⚡ TFR Task Tracker (Master Task Tracker, TFR-scoped data source).
+ * Fields mirror the governance §8 schema additions (Owner / Active Agent / Risk / PR). */
+export interface TaskTrackerItem {
+  id: string
+  url: string
+  task: string | null
+  status: TaskTrackerStatusValue | string | null
+  owner: string | null
+  active_agent: string | null
+  risk: string | null
+  pr: string | null
+}
+
+export interface TaskTrackerStatus {
+  tasks: TaskTrackerItem[]
+}
+
 export interface StatusResponse {
   generated_at: string
   nodes: Node[]
@@ -135,4 +178,6 @@ export interface StatusResponse {
   homelab: HomelabStatus
   notion: NotionStatus
   lan_watchtower?: LanWatchtower
+  github?: GitHubStatus
+  task_tracker?: TaskTrackerStatus
 }

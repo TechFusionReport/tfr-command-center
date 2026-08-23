@@ -14,6 +14,7 @@ Setup:
 import asyncio
 import json
 import os
+import re
 import subprocess
 import time
 from datetime import datetime, timezone
@@ -32,6 +33,8 @@ N8N_API_KEY         = os.getenv("N8N_API_KEY",         "")
 CF_ACCOUNT_ID       = os.getenv("CF_ACCOUNT_ID",       "")
 CF_API_TOKEN        = os.getenv("CF_API_TOKEN",        "")
 NOTION_TOKEN        = os.getenv("NOTION_TOKEN",        "")
+GITHUB_TOKEN        = os.getenv("GITHUB_TOKEN",        "")
+GITHUB_ORG          = os.getenv("GITHUB_ORG",          "TechFusionReport")
 TIMEOUT_S           = int(os.getenv("TIMEOUT_S",       "5"))
 LAN_WATCHTOWER_URL  = os.getenv(
     "LAN_WATCHTOWER_URL",
@@ -70,6 +73,24 @@ SERVICE_CHECKS = [
 ]
 
 CF_WORKERS = ["discovery", "enhancement-poller", "publisher-poller"]
+
+# PR tracking is scoped to the repos the TechFusion OS governance model actually
+# applies to. tfr-command-center itself is intentionally excluded (see governance
+# §10 — the dashboard doesn't track PRs against itself).
+GITHUB_PR_REPOS = ["Website", "Automations"]
+
+# Statuses considered "open" in the Master Task Tracker — everything except the
+# two terminal states.
+TASK_TRACKER_OPEN_STATUSES = ["Not Started", "In Progress", "On Hold", "Blocked"]
+
+# PR template footer fields (see .github/PULL_REQUEST_TEMPLATE.md in Website/Automations).
+# Mirrors the negative-lookahead used by Automations' validate-pr-metadata.yml so an
+# unfilled template placeholder ("<Claude / ChatGPT / Justin>") reads as missing, not present.
+_PR_FOOTER_FIELDS = ("Agent", "Task", "Risk")
+_PR_FOOTER_RE = {
+    field: re.compile(rf"(?mi)^[ \t]*(?:\*\*)?{field}:(?:\*\*)?[ \t]*(.*)$")
+    for field in _PR_FOOTER_FIELDS
+}
 
 
 # ── Helpers ───────────────────────────────────────────────────────────
@@ -317,6 +338,156 @@ async def get_content_catalog(session: aiohttp.ClientSession) -> dict:
     return {**counts, "total": total}
 
 
+# ── Master Task Tracker (Notion) ───────────────────────────────────────────
+
+def _notion_text_value(prop: Optional[dict]) -> Optional[str]:
+    """Read the plain-text value out of a title/rich_text/select/status Notion property."""
+    if not prop:
+        return None
+    ptype = prop.get("type")
+    if ptype in ("title", "rich_text"):
+        parts = prop.get(ptype) or []
+        text  = "".join(p.get("plain_text", "") for p in parts)
+        return text or None
+    if ptype == "select":
+        sel = prop.get("select")
+        return sel.get("name") if sel else None
+    if ptype == "status":
+        st = prop.get("status")
+        return st.get("name") if st else None
+    return None
+
+
+async def get_task_tracker(session: aiohttp.ClientSession) -> list[dict]:
+    """Open rows (Status not Done/Abandoned) from the ⚡ TFR Task Tracker data source.
+    NOTION_TASK_TRACKER_ID must point at that specific data source — the Command
+    Center is TFR-scoped, same as the GitHub PR tracking above."""
+    db_id = NOTION_DBS.get("Task Tracker", "")
+    if not NOTION_TOKEN or not db_id:
+        return []
+
+    headers = {
+        "Authorization":  f"Bearer {NOTION_TOKEN}",
+        "Notion-Version": "2022-06-28",
+        "Content-Type":   "application/json",
+    }
+
+    tasks: list[dict] = []
+    cursor = None
+    while True:
+        body: dict = {
+            "page_size": 100,
+            "filter": {
+                "or": [
+                    {"property": "Status", "select": {"equals": s}}
+                    for s in TASK_TRACKER_OPEN_STATUSES
+                ]
+            },
+        }
+        if cursor:
+            body["start_cursor"] = cursor
+        try:
+            async with session.post(
+                f"https://api.notion.com/v1/databases/{db_id}/query",
+                headers=headers,
+                json=body,
+                timeout=aiohttp.ClientTimeout(total=15),
+            ) as r:
+                if r.status != 200:
+                    print(f"Task Tracker query failed: HTTP {r.status}")
+                    break
+                data = await r.json()
+        except Exception as e:
+            print(f"Task Tracker query failed: {e}")
+            break
+
+        for page in data.get("results", []):
+            props = page.get("properties", {})
+            tasks.append({
+                "id":           page.get("id"),
+                "url":          page.get("url"),
+                "task":         _notion_text_value(props.get("Task")),
+                "status":       _notion_text_value(props.get("Status")),
+                "owner":        _notion_text_value(props.get("Owner")),
+                "active_agent": _notion_text_value(props.get("Active Agent")),
+                "risk":         _notion_text_value(props.get("Risk")),
+                "pr":           _notion_text_value(props.get("PR")),
+            })
+
+        if data.get("has_more"):
+            cursor = data.get("next_cursor")
+        else:
+            break
+
+    return tasks
+
+
+# ── GitHub Pull Requests ────────────────────────────────────────────────────
+
+def _parse_pr_footer(body: str) -> dict:
+    """Extract Agent/Task/Risk from a PR body's metadata footer (see PR template).
+    A field stays None if it's missing, empty, or still the unfilled template
+    placeholder (e.g. "<Claude / ChatGPT / Justin>") — the same case the Automations
+    validate-pr-metadata.yml check rejects, so this never reports a placeholder as
+    real data."""
+    parsed: dict[str, Optional[str]] = {f.lower(): None for f in _PR_FOOTER_FIELDS}
+    for field, pattern in _PR_FOOTER_RE.items():
+        m = pattern.search(body or "")
+        if not m:
+            continue
+        value = m.group(1).strip().strip("*").strip()
+        if value and not value.startswith("<"):
+            parsed[field.lower()] = value
+    return parsed
+
+
+async def get_github_prs(session: aiohttp.ClientSession) -> list[dict]:
+    """Open PRs across Website + Automations (not tfr-command-center — see governance §10),
+    with each PR's Agent/Task/Risk footer parsed out for display."""
+    if not GITHUB_TOKEN:
+        return []
+
+    headers = {
+        "Authorization":        f"Bearer {GITHUB_TOKEN}",
+        "Accept":               "application/vnd.github+json",
+        "X-GitHub-Api-Version": "2022-11-28",
+    }
+
+    prs: list[dict] = []
+    for repo in GITHUB_PR_REPOS:
+        try:
+            async with session.get(
+                f"https://api.github.com/repos/{GITHUB_ORG}/{repo}/pulls",
+                headers=headers,
+                params={"state": "open", "per_page": "50", "sort": "updated", "direction": "desc"},
+                timeout=aiohttp.ClientTimeout(total=10),
+            ) as r:
+                if r.status != 200:
+                    print(f"GitHub PR fetch failed for {repo}: HTTP {r.status}")
+                    continue
+                pulls = await r.json()
+        except Exception as e:
+            print(f"GitHub PR fetch failed for {repo}: {e}")
+            continue
+
+        for pr in pulls:
+            footer = _parse_pr_footer(pr.get("body") or "")
+            prs.append({
+                "repo":       repo,
+                "number":     pr["number"],
+                "title":      pr["title"],
+                "url":        pr["html_url"],
+                "author":     (pr.get("user") or {}).get("login"),
+                "draft":      pr.get("draft", False),
+                "created_at": pr.get("created_at"),
+                "updated_at": pr.get("updated_at"),
+                **footer,
+            })
+
+    prs.sort(key=lambda p: p.get("updated_at") or "", reverse=True)
+    return prs
+
+
 # ── LAN Watchtower ────────────────────────────────────────────────────────────────
 
 async def get_lan_watchtower(session: aiohttp.ClientSession) -> dict:
@@ -431,9 +602,14 @@ async def collect() -> dict:
         worker_tasks = [get_worker_status(session, w) for w in CF_WORKERS]
         cat_task     = get_content_catalog(session)
         lan_task     = get_lan_watchtower(session)
+        github_task  = get_github_prs(session)
+        tracker_task = get_task_tracker(session)
 
-        svc_results, n8n_status, *worker_statuses, catalog, lan_watchtower = await asyncio.gather(
-            svc_task, n8n_task, *worker_tasks, cat_task, lan_task
+        (
+            svc_results, n8n_status, *worker_statuses, catalog, lan_watchtower,
+            github_prs, tracker_tasks,
+        ) = await asyncio.gather(
+            svc_task, n8n_task, *worker_tasks, cat_task, lan_task, github_task, tracker_task
         )
 
     wg_peers = get_wireguard_peers()
@@ -481,6 +657,12 @@ async def collect() -> dict:
                 {"name": "Topic Queue", "id": NOTION_DBS.get("Topic Queue", "")},
                 {"name": "Task Tracker", "id": NOTION_DBS.get("Task Tracker", "")},
             ],
+        },
+        "github": {
+            "prs": github_prs,
+        },
+        "task_tracker": {
+            "tasks": tracker_tasks,
         },
         "lan_watchtower": lan_watchtower,
     }
