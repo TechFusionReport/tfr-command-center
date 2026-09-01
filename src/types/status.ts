@@ -126,6 +126,22 @@ export interface LanWatchtower {
   generated_at: string
 }
 
+
+export interface PublicObservabilityComponent {
+  name: string
+  status: 'up' | 'degraded'
+}
+
+export interface PublicObservability {
+  generated_at: string
+  status: 'healthy' | 'degraded' | 'unavailable'
+  stale: boolean
+  reason?: 'not_configured' | 'upstream_error' | 'invalid_response' | 'unreachable'
+  targets: { total: number, healthy: number, down: number }
+  alerts: { firing: number }
+  components: PublicObservabilityComponent[]
+}
+
 export interface StatusResponse {
   generated_at: string
   nodes: Node[]
@@ -135,4 +151,5 @@ export interface StatusResponse {
   homelab: HomelabStatus
   notion: NotionStatus
   lan_watchtower?: LanWatchtower
+  observability?: PublicObservability
 }
