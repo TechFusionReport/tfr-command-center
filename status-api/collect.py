@@ -22,6 +22,8 @@ from typing import Optional
 import aiohttp
 from dotenv import load_dotenv
 
+from observability import collect_prometheus
+
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
 # ── Config ─────────────────────────────────────────────────────────
@@ -33,6 +35,10 @@ CF_ACCOUNT_ID       = os.getenv("CF_ACCOUNT_ID",       "")
 CF_API_TOKEN        = os.getenv("CF_API_TOKEN",        "")
 NOTION_TOKEN        = os.getenv("NOTION_TOKEN",        "")
 TIMEOUT_S           = int(os.getenv("TIMEOUT_S",       "5"))
+PROMETHEUS_URL      = os.getenv("PROMETHEUS_URL",      "")
+PROMETHEUS_PUBLIC_JOBS = {
+    item.strip() for item in os.getenv("PROMETHEUS_PUBLIC_JOBS", "").split(",") if item.strip()
+}
 LAN_WATCHTOWER_URL  = os.getenv(
     "LAN_WATCHTOWER_URL",
     "https://n8n.techfusionreport.com/webhook/lan-status",
@@ -431,9 +437,10 @@ async def collect() -> dict:
         worker_tasks = [get_worker_status(session, w) for w in CF_WORKERS]
         cat_task     = get_content_catalog(session)
         lan_task     = get_lan_watchtower(session)
+        prometheus_task = collect_prometheus(session, PROMETHEUS_URL, TIMEOUT_S, PROMETHEUS_PUBLIC_JOBS)
 
-        svc_results, n8n_status, *worker_statuses, catalog, lan_watchtower = await asyncio.gather(
-            svc_task, n8n_task, *worker_tasks, cat_task, lan_task
+        svc_results, n8n_status, *worker_statuses, catalog, lan_watchtower, observability = await asyncio.gather(
+            svc_task, n8n_task, *worker_tasks, cat_task, lan_task, prometheus_task
         )
 
     wg_peers = get_wireguard_peers()
@@ -483,6 +490,7 @@ async def collect() -> dict:
             ],
         },
         "lan_watchtower": lan_watchtower,
+        "observability": observability,
     }
 
 
