@@ -74,7 +74,7 @@ export const MOCK_STATUS: StatusResponse = {
       { name: 'Topic Queue',        id: 'topic-queue',      record_count: 42 },
       { name: 'Task Tracker',       id: 'task-tracker',     record_count: 31 },
     ],
-  },,
+  },
   observability: {
     generated_at: new Date().toISOString(),
     status: 'healthy',
