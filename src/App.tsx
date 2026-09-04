@@ -8,6 +8,7 @@ import ContentCatalogBar from './components/pipeline/ContentCatalogBar'
 import WorkflowTable from './components/n8n/WorkflowTable'
 import ServiceGrid from './components/homelab/ServiceGrid'
 import LanWatchtowerCard from './components/lan/LanWatchtowerCard'
+import ObservabilityCard from './components/observability/ObservabilityCard'
 
 export default function App() {
   const { data, error, loading, stale, refetch } = useStatus()
@@ -57,6 +58,12 @@ export default function App() {
           <Section title="n8n Workflows" subtitle={data.n8n.reachable ? data.n8n.host : `${data.n8n.host} — unreachable`} status={data.n8n.reachable ? 'up' : 'down'}>
             <WorkflowTable workflows={data.n8n.workflows} />
           </Section>
+
+          {data.observability && (
+            <Section title="Platform Observability" subtitle="Prometheus · public-safe aggregate">
+              <ObservabilityCard data={data.observability} />
+            </Section>
+          )}
 
           <Section title="Homelab Services">
             <ServiceGrid services={data.homelab.services} nodes={data.nodes} />

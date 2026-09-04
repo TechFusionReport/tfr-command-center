@@ -75,4 +75,15 @@ export const MOCK_STATUS: StatusResponse = {
       { name: 'Task Tracker',       id: 'task-tracker',     record_count: 31 },
     ],
   },
+  observability: {
+    generated_at: new Date().toISOString(),
+    status: 'healthy',
+    stale: false,
+    targets: { total: 8, healthy: 8, down: 0 },
+    alerts: { firing: 0 },
+    components: [
+      { name: 'website', status: 'up' },
+      { name: 'techfusion-api', status: 'up' },
+    ],
+  }
 }
