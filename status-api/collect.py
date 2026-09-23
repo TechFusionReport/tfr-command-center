@@ -156,6 +156,7 @@ async def check_http(
         ) as resp:
             latency = int((time.monotonic() - start) * 1000)
             status  = "up" if resp.status < 500 else "down"
+            return status, latency
     except Exception:
         return "down", None
 
