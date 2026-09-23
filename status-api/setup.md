@@ -21,7 +21,12 @@ sudo chown ubuntu:ubuntu /var/www/status
 ```bash
 python3 /opt/tfr-status/collect.py
 cat /var/www/status/status.json | python3 -m json.tool | head -40
+curl -fsS http://localhost:8099/status.json | python3 -m json.tool | head -40
 ```
+
+## 3.1 Prometheus
+
+Set `PROMETHEUS_URL` to an address reachable from the collector, preferably the internal Docker-network URL `http://prometheus:9090`. Leave `PROMETHEUS_PUBLIC_JOBS` empty to publish aggregate counts only, or set a comma-separated allowlist of safe public job names. Raw labels, instances, scrape URLs, and alert text are never copied into the public observability contract.
 
 ## 4. Cron (every 60s)
 
@@ -45,6 +50,8 @@ server {
     }
 }
 ```
+
+The root path is intentionally not configured; `https://status-api.techfusionreport.com/` may show the nginx welcome page. Validate `/status.json`, which is the supported endpoint.
 
 ## 6. Cloudflared tunnel
 

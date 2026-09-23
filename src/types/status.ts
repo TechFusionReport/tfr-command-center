@@ -1,7 +1,7 @@
 export type ServiceStatus = 'up' | 'down' | 'unknown'
 export type WorkerStatus  = 'healthy' | 'error' | 'unknown'
 export type ExecStatus    = 'success' | 'error' | 'running' | 'waiting'
-
+ 
 export interface Service {
   name: string
   url?: string
@@ -9,9 +9,9 @@ export interface Service {
   latency_ms?: number
   note?: string
 }
-
+ 
 export type NodeId = 'oracle' | 'hetzner' | 'yoga' | 'mbp' | 'pi' | 's25'
-
+ 
 export interface Node {
   id: NodeId
   label: string
@@ -21,7 +21,7 @@ export interface Node {
   reachable: boolean
   services: Service[]
 }
-
+ 
 export interface WireGuardPeer {
   node_id: NodeId
   allowed_ips: string
@@ -30,14 +30,14 @@ export interface WireGuardPeer {
   transfer_rx_bytes?: number
   transfer_tx_bytes?: number
 }
-
+ 
 export interface WireGuardMesh {
   hub: NodeId
   peers: WireGuardPeer[]
 }
-
+ 
 export type WorkerName = 'discovery.js' | 'enhancement-poller.js' | 'publisher-poller.js'
-
+ 
 export interface CloudflareWorker {
   name: WorkerName
   status: WorkerStatus
@@ -47,19 +47,19 @@ export interface CloudflareWorker {
   error_rate?: number
   last_error?: string
 }
-
+ 
 export interface ContentCatalog {
   pending: number
   in_review: number
   published: number
   total: number
 }
-
+ 
 export interface TFRPipeline {
   workers: CloudflareWorker[]
   content_catalog: ContentCatalog
 }
-
+ 
 export interface N8NExecution {
   started_at: string
   finished_at?: string
@@ -67,20 +67,20 @@ export interface N8NExecution {
   duration_ms?: number
   error_message?: string
 }
-
+ 
 export interface N8NWorkflow {
   id: string
   name: string
   active: boolean
   last_execution?: N8NExecution
 }
-
+ 
 export interface N8NStatus {
   host: string
   reachable: boolean
   workflows: N8NWorkflow[]
 }
-
+ 
 export interface HomelabService {
   name: string
   url?: string
@@ -90,22 +90,22 @@ export interface HomelabService {
   latency_ms?: number
   note?: string
 }
-
+ 
 export interface HomelabStatus {
   services: HomelabService[]
 }
-
+ 
 export interface NotionDatabase {
   name: string
   id: string
   record_count?: number
   last_updated?: string
 }
-
+ 
 export interface NotionStatus {
   databases: NotionDatabase[]
 }
-
+ 
 export interface LanCheck {
   name: string
   ok: boolean
@@ -113,7 +113,7 @@ export interface LanCheck {
   latency_avg_ms: number | null
   packet_loss_pct: number | null
 }
-
+ 
 export interface LanWatchtower {
   healthy: boolean | null
   incident_open: boolean
@@ -125,11 +125,27 @@ export interface LanWatchtower {
   checks: LanCheck[]
   generated_at: string
 }
-
+ 
+ 
+export interface PublicObservabilityComponent {
+  name: string
+  status: 'up' | 'degraded'
+}
+ 
+export interface PublicObservability {
+  generated_at: string
+  status: 'healthy' | 'degraded' | 'unavailable'
+  stale: boolean
+  reason?: 'not_configured' | 'upstream_error' | 'invalid_response' | 'unreachable'
+  targets: { total: number, healthy: number, down: number }
+  alerts: { firing: number }
+  components: PublicObservabilityComponent[]
+}
+ 
 /** A repo tracked for open-PR display — Website + Automations only (see TechFusion OS §10;
  * tfr-command-center is intentionally excluded from its own PR tracking). */
 export type GitHubTrackedRepo = 'Website' | 'Automations'
-
+ 
 /** Agent/Task/Risk are parsed from the PR body's metadata footer (governance §4/§11) —
  * null when the PR predates the footer requirement or left a field unfilled. */
 export interface GitHubPR {
@@ -145,13 +161,13 @@ export interface GitHubPR {
   task?: string | null
   risk?: string | null
 }
-
+ 
 export interface GitHubStatus {
   prs: GitHubPR[]
 }
-
+ 
 export type TaskTrackerStatusValue = 'Not Started' | 'In Progress' | 'On Hold' | 'Done' | 'Abandoned' | 'Blocked'
-
+ 
 /** One open row from the ⚡ TFR Task Tracker (Master Task Tracker, TFR-scoped data source).
  * Fields mirror the governance §8 schema additions (Owner / Active Agent / Risk / PR). */
 export interface TaskTrackerItem {
@@ -164,11 +180,11 @@ export interface TaskTrackerItem {
   risk: string | null
   pr: string | null
 }
-
+ 
 export interface TaskTrackerStatus {
   tasks: TaskTrackerItem[]
 }
-
+ 
 export interface StatusResponse {
   generated_at: string
   nodes: Node[]
@@ -178,6 +194,8 @@ export interface StatusResponse {
   homelab: HomelabStatus
   notion: NotionStatus
   lan_watchtower?: LanWatchtower
+  observability?: PublicObservability
   github?: GitHubStatus
   task_tracker?: TaskTrackerStatus
 }
+ 
