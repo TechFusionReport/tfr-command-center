@@ -24,6 +24,7 @@ import aiohttp
 from dotenv import load_dotenv
 
 from observability import collect_prometheus
+from internal_targets import internal_service_url
 
 load_dotenv(os.path.join(os.path.dirname(__file__), ".env"))
 
@@ -67,11 +68,11 @@ SERVICE_CHECKS = [
     ("oracle",  "n8n",            "https://n8n.techfusionreport.com/healthz"),
     ("oracle",  "LibreChat",      "https://chat.techfusionreport.com"),
     ("oracle",  "Portainer",      "https://portainer.techfusionreport.com"),
-    ("oracle",  "Uptime Kuma",    "https://uptime.techfusionreport.com"),
+    ("oracle",  "Uptime Kuma",    internal_service_url('UPTIME_KUMA_INTERNAL_URL')),
     ("oracle",  "Grafana",        "https://grafana.techfusionreport.com/api/health"),
     ("hetzner", "Vaultwarden",    "https://vault.techfusionreport.com"),
-    ("hetzner", "Syncthing",      "https://sync.techfusionreport.com"),
-    ("hetzner", "Glances",        "https://glances-hetzner.techfusionreport.com"),
+    ("hetzner", "Syncthing",      internal_service_url('SYNCTHING_INTERNAL_URL')),
+    ("hetzner", "Glances",        internal_service_url('GLANCES_HETZNER_INTERNAL_URL')),
     ("pi",      "Home Assistant", "https://ha.techfusionreport.com"),
     ("pi",      "Jellyfin",       "https://jellyfin.techfusionreport.com"),
     ("pi",      "Glances",        "https://glances-pi.techfusionreport.com"),
@@ -146,6 +147,8 @@ def get_wireguard_peers() -> list[dict]:
 async def check_http(
     session: aiohttp.ClientSession, url: str
 ) -> tuple[str, Optional[int]]:
+    if not url:
+        return "down", None
     try:
         start = time.monotonic()
         async with session.get(
