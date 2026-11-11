@@ -19,7 +19,7 @@ Draft retained for review; no merge or deployment authorized. Syncthing is verif
 - python3 -B -m unittest discover -s status-api -p 'test_*.py' -v: 7 tests passed, including the existing observability tests.
 - Tests cover configured targets, all three identities, missing settings, rejection of public/malformed settings, no request on a missing target, unchanged HTTP status policy, unchanged output fields, and no target URLs in the service result.
 - AST comparison against main confirmed that only the three requested table targets changed and all other targets and identities were preserved.
-- git diff --cached --check passed. The complete PR diff was checked for address literals, webhook URLs, and key-like literals; none found.
+- git diff --cached --check passed. The update contains only the explicitly permitted 127.0.0.1 loopback address; no other IP literals, secrets, or webhook URLs were added.
 - No live target reachability test or deployment was performed. Existing historical address literals elsewhere in the repository are outside this diff.
 
 ## Exact manual deployment steps for /opt
